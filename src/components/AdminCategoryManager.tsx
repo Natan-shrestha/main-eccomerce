@@ -50,6 +50,9 @@ export default function AdminCategoryManager() {
     image_url: ''
   });
 
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+
   const [discountForm, setDiscountForm] = useState({
     discount_percentage: '',
     valid_from: new Date().toISOString().split('T')[0],
@@ -99,18 +102,64 @@ export default function AdminCategoryManager() {
     }
   };
 
+  const handleImageUpload = async (file: File): Promise<string> => {
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
+    const filePath = `category-images/${fileName}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('product-images')
+      .upload(filePath, file);
+
+    if (uploadError) throw uploadError;
+
+    const { data } = supabase.storage
+      .from('product-images')
+      .getPublicUrl(filePath);
+
+    return data.publicUrl;
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setImageFile(file);
+      
+      // Create preview URL
+      const reader = new FileReader();
+      reader.onload = () => {
+        setImagePreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const resetForm = () => {
+    setCategoryForm({ name: '', description: '', image_url: '' });
+    setImageFile(null);
+    setImagePreview(null);
+    setEditingCategory(null);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
 
     try {
+      let imageUrl = categoryForm.image_url;
+
+      // Upload new image if one was selected
+      if (imageFile) {
+        imageUrl = await handleImageUpload(imageFile);
+      }
+
       if (editingCategory) {
         const { error } = await supabase
           .from('categories')
           .update({
             name: categoryForm.name,
             description: categoryForm.description || null,
-            image_url: categoryForm.image_url || null,
+            image_url: imageUrl || null,
           })
           .eq('id', editingCategory.id);
 
@@ -126,7 +175,7 @@ export default function AdminCategoryManager() {
           .insert([{
             name: categoryForm.name,
             description: categoryForm.description || null,
-            image_url: categoryForm.image_url || null,
+            image_url: imageUrl || null,
           }]);
 
         if (error) throw error;
@@ -137,8 +186,7 @@ export default function AdminCategoryManager() {
         });
       }
 
-      setCategoryForm({ name: '', description: '', image_url: '' });
-      setEditingCategory(null);
+      resetForm();
       setIsDialogOpen(false);
       fetchCategories();
     } catch (error: any) {
@@ -185,6 +233,9 @@ export default function AdminCategoryManager() {
       description: category.description || '',
       image_url: category.image_url || ''
     });
+    // Set preview to existing image
+    setImagePreview(category.image_url);
+    setImageFile(null);
     setIsDialogOpen(true);
   };
 
@@ -363,17 +414,30 @@ export default function AdminCategoryManager() {
                     />
                   </div>
                   <div>
-                    <Label htmlFor="image_url">Image URL</Label>
+                    <Label htmlFor="image">Category Image</Label>
                     <Input
-                      id="image_url"
-                      placeholder="Enter image URL"
-                      value={categoryForm.image_url}
-                      onChange={(e) => setCategoryForm(prev => ({ ...prev, image_url: e.target.value }))}
+                      id="image"
+                      type="file"
+                      accept="image/*"
+                      onChange={handleFileChange}
+                      className="cursor-pointer"
                     />
+                    {imagePreview && (
+                      <div className="mt-2">
+                        <img
+                          src={imagePreview}
+                          alt="Category preview"
+                          className="w-32 h-32 object-cover rounded border"
+                        />
+                      </div>
+                    )}
                   </div>
                 </div>
                 <DialogFooter className="mt-6">
-                  <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
+                  <Button type="button" variant="outline" onClick={() => {
+                    resetForm();
+                    setIsDialogOpen(false);
+                  }}>
                     Cancel
                   </Button>
                   <Button type="submit" disabled={saving}>

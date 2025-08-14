@@ -2,24 +2,47 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { RefreshCw } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 
 const CategoriesPage = () => {
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     fetchCategories();
+
+    // Set up real-time subscription for category changes
+    const categoriesSubscription = supabase
+      .channel('categories-changes')
+      .on('postgres_changes', 
+        { event: '*', schema: 'public', table: 'categories' },
+        () => {
+          fetchCategories();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      categoriesSubscription.unsubscribe();
+    };
   }, []);
 
-  const fetchCategories = async () => {
+  const fetchCategories = async (isRefresh = false) => {
+    if (isRefresh) {
+      setRefreshing(true);
+    }
+    
     try {
       const { data, error } = await supabase
         .from('categories')
         .select(`
           *,
           products (count)
-        `);
+        `)
+        .order('created_at', { ascending: false });
 
       if (error) throw error;
       
@@ -43,7 +66,12 @@ const CategoriesPage = () => {
       console.error('Error fetching categories:', error);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
+  };
+
+  const handleRefresh = () => {
+    fetchCategories(true);
   };
 
   if (loading) {
@@ -58,7 +86,18 @@ const CategoriesPage = () => {
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="text-center mb-12">
-        <h1 className="text-4xl font-bold text-foreground mb-4">Shop by Category</h1>
+        <div className="flex items-center justify-center gap-4 mb-4">
+          <h1 className="text-4xl font-bold text-foreground">Shop by Category</h1>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="ml-4"
+          >
+            <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+          </Button>
+        </div>
         <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
           Discover our carefully curated furniture collections for every room in your home
         </p>
